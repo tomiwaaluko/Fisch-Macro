@@ -27,6 +27,18 @@ Fisch Macro is a versatile macro recorder and automation tool designed for the R
 
 ## Usage
 
+### Autonomous fishing macro (in development)
+
+After installing dependencies with `pip install -r requirements.txt`, run:
+
+```bash
+python -m fisch_macro
+```
+
+The modular autonomous loop uses classical computer vision; the `python -m fisch_macro` entrypoint is completed in a later task.
+
+### Legacy GUI macro recorder
+
 1. Run the application:
    ```bash
    python "Fisch Macro.py"
