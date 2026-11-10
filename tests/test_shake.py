@@ -49,6 +49,11 @@ def test_shake_controller_clicks_once_and_stops_on_bite():
     acted = ctl.tick(shake=shake, bite_or_reel=False, client_origin=(0, 0))
     assert acted is True
     assert ("down",) in mouse.events
+    # Prior shake click left the button held; bite must release only.
+    inp.mouse_down()
     mouse.events.clear()
     acted2 = ctl.tick(shake=shake, bite_or_reel=True, client_origin=(0, 0))
     assert acted2 is False
+    assert mouse.events == [("up",)]
+    assert not any(e[0] == "down" for e in mouse.events)
+    assert not any(e[0] == "move" for e in mouse.events)
