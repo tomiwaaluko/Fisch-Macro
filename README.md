@@ -36,14 +36,15 @@ python -m fisch_macro
 
 Start runs the vision loop. **F10** or Stop/Kill stops immediately and releases the mouse button. Save Profile writes `profiles/{name}.json`.
 
-### Legacy GUI macro recorder
+### Legacy GUI macro recorder (obsolete prototype)
 
-1. Run the application:
-   ```bash
-   python "Fisch Macro.py"
-   ```
-2. Use the GUI to record and play back macros or start SHAKE detection.
-3. Alternatively, use the following hotkeys for quick access:
+`legacy_fisch_macro.py` is the old Tkinter macro recorder prototype. It is not the supported entrypoint. Use `python -m fisch_macro` instead.
+
+```bash
+python legacy_fisch_macro.py
+```
+
+For reference, the legacy recorder hotkeys are:
 
 ## Hotkeys
 
