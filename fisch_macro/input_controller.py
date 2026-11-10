@@ -1,7 +1,7 @@
 # fisch_macro/input_controller.py
 from __future__ import annotations
 
-import time
+import threading
 from typing import Callable, Protocol
 
 
@@ -39,30 +39,30 @@ class InputController:
     def __init__(
         self,
         mouse: MouseBackend | None = None,
-        sleep_fn: Callable[[float], None] = time.sleep,
+        sleep_fn: Callable[[float], None] | None = None,
     ) -> None:
         self._mouse = mouse or PynputMouse()
         self._sleep = sleep_fn
-        self._cancelled = False
+        self._cancelled = threading.Event()
         self._held = False
 
     def cancel(self) -> None:
-        self._cancelled = True
+        self._cancelled.set()
 
     def clear_cancel(self) -> None:
-        self._cancelled = False
+        self._cancelled.clear()
 
     def is_cancelled(self) -> bool:
-        return self._cancelled
+        return self._cancelled.is_set()
 
     def move_to(self, x: int, y: int) -> bool:
-        if self._cancelled:
+        if self.is_cancelled():
             return False
         self._mouse.move_to(x, y)
         return True
 
     def mouse_down(self) -> bool:
-        if self._cancelled:
+        if self.is_cancelled():
             return False
         self._mouse.down()
         self._held = True
@@ -77,15 +77,15 @@ class InputController:
         self.mouse_up()
 
     def click(self, x: int, y: int, hold_ms: float = 70.0) -> bool:
-        if self._cancelled:
-            return False
         if not self.move_to(x, y):
             return False
         if not self.mouse_down():
             return False
-        self._sleep(hold_ms / 1000.0)
-        if self._cancelled:
-            self.release_all()
-            return False
-        self.mouse_up()
-        return True
+        try:
+            seconds = hold_ms / 1000.0
+            if self._sleep is None:
+                return not self._cancelled.wait(seconds)
+            self._sleep(seconds)
+            return not self.is_cancelled()
+        finally:
+            self.mouse_up()

@@ -1,14 +1,17 @@
 # tests/test_loop_transitions.py
+import threading
+
 import numpy as np
 import pytest
 
+from fisch_macro import loop
 from fisch_macro.input_controller import InputController
 from fisch_macro.loop import BotRuntime
 from fisch_macro.perception.frame_bundle import FrameBundle
 from fisch_macro.perception.result import detect_result
 from fisch_macro.perception.shake import radius_limits_from_prior
 from fisch_macro.state_machine import StateMachine
-from fisch_macro.types import BotState, FramePacket, Observation, ProfileData
+from fisch_macro.types import BotState, FramePacket, Observation, ProfileData, Rect
 
 
 class FakeMouse:
@@ -105,14 +108,63 @@ def test_start_and_stop_release_lmb():
     assert rt.reel._holding is False
 
 
+def test_start_while_reeling_keeps_existing_hold_and_state():
+    mouse = FakeMouse()
+    rt = _runtime(mouse=mouse, dry_run=False)
+    rt.start()
+    rt.state = BotState.REELING
+    rt.fail_streak = 2
+    rt.input.mouse_down()
+    rt.reel._holding = True
+    rt.start()
+    assert rt.state == BotState.REELING
+    assert rt.fail_streak == 2
+    assert rt.reel._holding
+    assert mouse.events == [("down",)]
+
+
+def test_stop_interrupts_a_long_shake_click():
+    pressed = threading.Event()
+
+    class SignalingMouse(FakeMouse):
+        def down(self):
+            super().down()
+            pressed.set()
+
+    mouse = SignalingMouse()
+    rt = _runtime(input_ctl=InputController(mouse=mouse), dry_run=False)
+    rt.profile.shake_click_hold_ms = 60_000
+    rt.start()
+    rt.state = BotState.SHAKING
+    shake = Observation(True, 0.9, geometry=Rect(50, 50, 20, 20))
+    worker = threading.Thread(target=rt.act, args=(_bundle(shake=shake), _frame()), daemon=True)
+    worker.start()
+    assert pressed.wait(2)
+    restart = threading.Thread(target=rt.start, daemon=True)
+    restart.start()
+    restart.join(timeout=2)
+    assert not restart.is_alive()
+    stop = threading.Thread(target=rt.stop, daemon=True)
+    stop.start()
+    stop.join(timeout=2)
+    assert not stop.is_alive()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert mouse.events[-1] == ("up",)
+    assert rt.state == BotState.IDLE
+    assert rt.input.is_cancelled()
+
+
 def test_perceive_bite_is_reel_without_shake_and_ready_is_clear():
     rt = _runtime()
     ready_bundle = rt.perceive(_frame())
     assert ready_bundle.ready.found is True
     assert ready_bundle.bite.found is False
 
-    image = np.zeros((100, 100, 3), dtype=np.uint8)
-    image[80:90, 30:70] = (255, 255, 255)
+    image = np.full((200, 300, 3), 100, dtype=np.uint8)
+    image[165:177, 65:235] = 25
+    image[164:178, 100:170] = 240
+    image[160:182, 135:138] = 65
     bite_bundle = rt.perceive(_frame(image))
     assert bite_bundle.reel.found is True
     assert bite_bundle.shake.found is False
@@ -164,6 +216,42 @@ def _reel_hold_extras(**overrides) -> Observation:
     extras = {"stable": False, "fish_x": 0.8, "bar_left": 0.2, "bar_right": 0.6, "progress": 0.4}
     extras.update(overrides)
     return Observation(True, 0.9, extras=extras)
+
+
+def test_lost_reel_releases_immediately_and_recovers_after_grace(monkeypatch):
+    monkeypatch.setattr(loop, "_REEL_LOSS_GRACE_FRAMES", 2)
+    mouse = FakeMouse()
+    rt = _runtime(mouse=mouse, dry_run=False)
+    rt.start()
+    rt.state = BotState.REELING
+    reel = _bundle(reel=_reel_hold_extras(stable=True))
+    missing = _bundle(shake=Observation(True, 0.9, geometry=Rect(20, 20, 40, 40)))
+
+    _step(rt, reel)
+    assert rt.reel._holding
+    _step(rt, missing)
+    assert rt.state == BotState.REELING
+    assert not rt.reel._holding
+    assert mouse.events[-1] == ("up",)
+    _step(rt, reel)
+    assert rt.reel._holding
+    _step(rt, missing)
+    assert rt.state == BotState.REELING
+    _step(rt, missing)
+    assert rt.state == BotState.RECOVERY
+    assert rt.fail_streak == 0
+
+
+@pytest.mark.parametrize("phase", [BotState.WAITING_SHAKE, BotState.SHAKING])
+def test_stalled_shake_phases_recover(monkeypatch, phase):
+    monkeypatch.setitem(loop._SHAKE_TIMEOUT_FRAMES, phase, 2)
+    rt = _runtime()
+    rt.start()
+    rt.state = phase
+    shake = Observation(phase == BotState.SHAKING)
+    stalled = _bundle(shake=shake)
+    assert rt.apply_bundle(stalled, operator_stop=False) == phase
+    assert rt.apply_bundle(stalled, operator_stop=False) == BotState.RECOVERY
 
 
 def test_act_reel_initializing_does_not_mouse_down():

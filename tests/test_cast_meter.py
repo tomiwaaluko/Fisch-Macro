@@ -23,6 +23,38 @@ def test_detect_cast_meter_reports_fill():
     assert obs.extras["fill_ratio"] > 0.7
 
 
+@pytest.mark.parametrize("top, fill_ratio", [(70, 0.3), (300, 0.9)])
+def test_cast_fill_is_relative_to_track_amid_white_hud(top, fill_ratio):
+    image = np.full((550, 460, 3), 20, dtype=np.uint8)
+    image[5:15, 30:260] = 240
+    image[top : top + 200, 230:270] = _meter_image(fill_ratio)
+    image[top + 220 : top + 240, 239:260] = 240
+
+    obs = detect_cast_meter(image)
+
+    assert obs.found
+    assert obs.geometry.y == top
+    assert obs.geometry.h == 200
+    assert obs.extras["fill_ratio"] == pytest.approx(fill_ratio)
+
+
+def test_cast_meter_rejects_white_hud_without_a_track():
+    image = np.zeros((320, 440, 3), dtype=np.uint8)
+    image[5:15, 30:260] = 240
+    image[100:180, 130:140] = 240
+    image[85:94, 190:200] = (0, 220, 0)
+
+    assert not detect_cast_meter(image).found
+
+
+def test_cast_meter_rejects_a_white_shape_clipped_by_the_search_strip():
+    image = np.full((320, 440, 3), 20, dtype=np.uint8)
+    image[30:38, 200:208] = (0, 220, 0)
+    image[220:240, 180:206] = 240
+
+    assert not detect_cast_meter(image).found
+
+
 class FakeMouse:
     def __init__(self):
         self.events = []

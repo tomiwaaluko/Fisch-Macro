@@ -1,6 +1,7 @@
 # tests/test_shake.py
 import numpy as np
 
+from fisch_macro.controllers import shake as shake_controller
 from fisch_macro.controllers.shake import ShakeController
 from fisch_macro.input_controller import InputController
 from fisch_macro.perception.shake import detect_shake
@@ -57,3 +58,24 @@ def test_shake_controller_clicks_once_and_stops_on_bite():
     assert mouse.events == [("up",)]
     assert not any(e[0] == "down" for e in mouse.events)
     assert not any(e[0] == "move" for e in mouse.events)
+
+
+def test_shake_retries_once_and_rearms_when_target_changes(monkeypatch):
+    now = 0.0
+    monkeypatch.setattr(shake_controller.time, "monotonic", lambda: now)
+    inp = InputController(mouse=FakeMouse(), sleep_fn=lambda _s: None)
+    ctl = ShakeController(inp, ProfileData(name="t", saved_at="2026-11-09"))
+    target = Observation(True, geometry=Rect(10, 20, 40, 40))
+    moved = Observation(True, geometry=Rect(30, 20, 40, 40))
+
+    assert ctl.tick(target, False, (0, 0))
+    assert not ctl.tick(target, False, (0, 0))
+    now += 1.0
+    assert ctl.tick(target, False, (0, 0))
+    now += 1.0
+    assert not ctl.tick(target, False, (0, 0))
+    assert ctl.tick(moved, False, (0, 0))
+    assert not ctl.tick(Observation(False), False, (0, 0))
+    assert ctl.tick(moved, False, (0, 0))
+    ctl.reset_target_memory()
+    assert ctl.tick(moved, False, (0, 0))

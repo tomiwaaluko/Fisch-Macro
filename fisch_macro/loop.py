@@ -16,12 +16,15 @@ from fisch_macro.perception.reel import detect_reel
 from fisch_macro.perception.result import detect_result
 from fisch_macro.perception.shake import detect_shake, radius_limits_from_prior
 from fisch_macro.profiler import Profiler
-from fisch_macro.state_machine import StateMachine
+from fisch_macro.state_machine import REEL_PHASES, SHAKE_PHASES, StateMachine
 from fisch_macro.types import BotState, FramePacket, Observation, ProfileData
 
 # Per-frame |delta fish_x| that maps to volatility 1 before the profiler EMA.
 _FULL_FISH_VOLATILITY_DELTA = 0.25
 _CAST_OWNED = {BotState.CASTING, BotState.WAITING_SHAKE, BotState.SHAKING, BotState.PRE_CAST}
+# Consecutive frames at the worker's nominal 33 Hz.
+_REEL_LOSS_GRACE_FRAMES = 10
+_SHAKE_TIMEOUT_FRAMES = {BotState.WAITING_SHAKE: 10 * 33, BotState.SHAKING: 30 * 33}
 
 
 def _blank_result(result: Observation) -> Observation:
@@ -81,6 +84,8 @@ class BotRuntime:
         self._result_hit_streak = 0
         self._suppress_result = False
         self._catch_result_frames = 0
+        self._reel_missing_frames = 0
+        self._shake_phase_frames = 0
         self._last_reel_progress: float | None = None
         self._last_fish_x: float | None = None
         self._running = False
@@ -101,7 +106,11 @@ class BotRuntime:
         return data
 
     def start(self) -> None:
+        if self._running:
+            return
         with self._lock:
+            if self._running:
+                return
             self.input.clear_cancel()
             self._running = True
             self._accepting = True
@@ -110,19 +119,20 @@ class BotRuntime:
             self._result_hit_streak = 0
             self._suppress_result = False
             self._catch_result_frames = 0
+            self._reel_missing_frames = 0
+            self._shake_phase_frames = 0
             self._last_reel_progress = None
             self._last_fish_x = None
             self.state = BotState.PRE_CAST
 
     def stop(self) -> None:
-        """Flag cancel, then release LMB. cancel() does not release by itself."""
-        self._running = False
-        self._accepting = False
+        """Interrupt any shake click before waiting for the runtime lock."""
         self.input.cancel()
         with self._lock:
-            self.recovery.run()
-            self.cast.force_release()
-            self.reel.force_release()
+            self._running = False
+            self._accepting = False
+            self.input.cancel()
+            self._release_buttons()
             self.shake.reset_target_memory()
             self.state = BotState.IDLE
 
@@ -204,10 +214,25 @@ class BotRuntime:
                     self._catch_result_frames = 0
             else:
                 self._catch_result_frames = 0
-            self.state = nxt
+            self.state = self._check_cue_timeouts(nxt, bundle)
         if tripped:
             self.stop()
         return self.state
+
+    def _check_cue_timeouts(self, nxt: BotState, bundle: FrameBundle) -> BotState:
+        if nxt in REEL_PHASES and not bundle.reel.found:
+            self._reel_missing_frames += 1
+            if self._reel_missing_frames >= _REEL_LOSS_GRACE_FRAMES:
+                return BotState.RECOVERY
+        else:
+            self._reel_missing_frames = 0
+        if nxt in SHAKE_PHASES:
+            self._shake_phase_frames = self._shake_phase_frames + 1 if nxt == self.state else 1
+            if self._shake_phase_frames >= _SHAKE_TIMEOUT_FRAMES[nxt]:
+                return BotState.RECOVERY
+        else:
+            self._shake_phase_frames = 0
+        return nxt
 
     def enter_recovery(self) -> bool:
         """Release inputs and sit in RECOVERY when the window is missing.
@@ -219,6 +244,9 @@ class BotRuntime:
             if not self._accepting:
                 return False
             self._release_buttons()
+            self.shake.reset_target_memory()
+            self._reel_missing_frames = 0
+            self._shake_phase_frames = 0
             self.state = BotState.RECOVERY
             self.missing_window_ticks += 1
             tripped = self.missing_window_ticks >= self.max_missing_window_ticks
@@ -251,6 +279,12 @@ class BotRuntime:
                 self.cast.force_release()
             elif self.state == BotState.RECOVERY:
                 self._release_buttons()
+                self.shake.reset_target_memory()
+            elif self.state in REEL_PHASES and not bundle.reel.found:
+                self._release_buttons()
+                self._last_reel_progress = None
+                self._last_fish_x = None
+                return
             if self.state == BotState.REEL_INITIALIZING:
                 self._observe_reel_progress(bundle)
             elif self.state != BotState.REELING:
@@ -292,6 +326,7 @@ class BotRuntime:
             self._tick_reel(bundle, frame)
 
     def _begin_cast(self, frame: FramePacket) -> None:
+        self.shake.reset_target_memory()
         height, width = frame.image.shape[:2]
         self.cast.safe_xy = (max(1, width // 2), max(1, int(height * 0.45)))
         if self.cast.begin_cast(frame.client_origin, now_ms=frame.timestamp_ms):
@@ -311,29 +346,34 @@ class BotRuntime:
 
     def _tick_reel(self, bundle: FrameBundle, frame: FramePacket) -> None:
         extras = bundle.reel.extras
-        progress = float(extras.get("progress", 0.0))
+        if not {"fish_x", "bar_left", "bar_right", "progress"} <= extras.keys():
+            self.reel.force_release()
+            self._last_reel_progress = None
+            self._last_fish_x = None
+            return
+        progress = float(extras["progress"])
         if self._last_reel_progress is None:
             slope = 0.0
         else:
             slope = progress - self._last_reel_progress
         self._last_reel_progress = progress
-        fish_x = float(extras.get("fish_x", 0.5))
+        fish_x = float(extras["fish_x"])
+        bar_left = float(extras["bar_left"])
+        bar_right = float(extras["bar_right"])
         volatility = self._fish_volatility(fish_x)
         ox, oy = frame.client_origin
         sx, sy = self.cast.safe_xy
         self.reel.tick(
             fish_x=fish_x,
-            bar_left=float(extras.get("bar_left", 0.2)),
-            bar_right=float(extras.get("bar_right", 0.6)),
+            bar_left=bar_left,
+            bar_right=bar_right,
             progress=progress,
             progress_slope=slope,
             fish_volatility=volatility,
             safe_screen_xy=(int(ox) + int(sx), int(oy) + int(sy)),
         )
-        if "bar_left" in extras and "bar_right" in extras:
-            width = float(extras["bar_right"]) - float(extras["bar_left"])
-            if width > 0:
-                self.profiler.update_bar_width_ratio(width)
+        if bar_right > bar_left:
+            self.profiler.update_bar_width_ratio(bar_right - bar_left)
 
     def _fish_volatility(self, fish_x: float) -> float:
         previous = self._last_fish_x

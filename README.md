@@ -34,7 +34,7 @@ pip install -r requirements.txt
 python -m fisch_macro
 ```
 
-Start runs the vision loop. **F10** or Stop/Kill stops immediately and releases the mouse button. Save Profile writes `profiles/{name}.json`.
+After clicking Start, switch to Roblox. The macro releases the mouse button and waits in recovery whenever Roblox loses focus. **F10** or Stop/Kill stops immediately and releases the mouse button. Save Profile writes `profiles/{name}.json`.
 
 ### Legacy GUI macro recorder (obsolete prototype)
 

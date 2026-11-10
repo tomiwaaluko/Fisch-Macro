@@ -8,25 +8,33 @@ import numpy as np
 from fisch_macro.types import FramePacket
 
 
-@dataclass
+@dataclass(frozen=True)
 class WindowInfo:
     left: int
     top: int
     width: int
     height: int
     title: str
+    handle: int
 
 
-def find_roblox_window(title_substr: str = "Roblox") -> WindowInfo | None:
+def find_roblox_window() -> WindowInfo | None:
     import pygetwindow as gw
 
-    matches = [w for w in gw.getAllWindows() if title_substr.lower() in (w.title or "").lower()]
-    if not matches:
+    try:
+        window = gw.getActiveWindow()
+        if window is None or window.isMinimized or not window.visible:
+            return None
+        title = window.title
+        if title.strip().casefold() != "roblox":
+            return None
+        left, top, width, height = window.box
+        if width > 0 and height > 0:
+            return WindowInfo(left, top, width, height, title, window._hWnd)
+    except gw.PyGetWindowException:
+        # The foreground window can close while its bounds are being read.
         return None
-    w = matches[0]
-    if w.width <= 0 or w.height <= 0:
-        return None
-    return WindowInfo(w.left, w.top, w.width, w.height, w.title)
+    return None
 
 
 def grab_frame(window: WindowInfo) -> FramePacket:

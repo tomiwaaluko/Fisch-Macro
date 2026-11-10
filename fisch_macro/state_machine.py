@@ -3,6 +3,9 @@ from __future__ import annotations
 from fisch_macro.perception.frame_bundle import FrameBundle
 from fisch_macro.types import BotState
 
+REEL_PHASES = {BotState.BITE_DETECTED, BotState.REEL_INITIALIZING, BotState.REELING}
+SHAKE_PHASES = {BotState.WAITING_SHAKE, BotState.SHAKING}
+
 
 class StateMachine:
     def transition(
@@ -28,6 +31,9 @@ class StateMachine:
             if state == BotState.BITE_DETECTED:
                 return BotState.REEL_INITIALIZING
             return BotState.BITE_DETECTED
+
+        if state in REEL_PHASES:
+            return state
 
         if bundle.bite.found:
             return BotState.BITE_DETECTED
@@ -55,6 +61,9 @@ class StateMachine:
                 return BotState.PRE_CAST
             return BotState.RECOVERY
 
+        if state in SHAKE_PHASES:
+            return state
+
         if bundle.cast.found:
             return BotState.CASTING
 
@@ -63,7 +72,7 @@ class StateMachine:
                 return BotState.RESET_TO_CAST
             return BotState.CATCH_RESULT
 
-        if state in {BotState.CASTING, BotState.WAITING_SHAKE} and not bundle.shake.found:
+        if state == BotState.CASTING:
             return BotState.WAITING_SHAKE
 
         return state

@@ -127,20 +127,16 @@ class App:
             return
         window = find_roblox_window()
         if window is None:
-            previous = self.runtime.state
-            tripped = self.runtime.enter_recovery()
-            self._log_state(previous)
-            if tripped:
-                self._stop_event.set()
-                self._set_status("Stopped: Roblox window missing too long")
-            else:
-                self._set_status("No Roblox window — recovery")
+            self._recover_window()
             return
-        self.runtime.note_window_present()
         frame = grab_frame(window)
         if self._stop_event.is_set() or not self.runtime._running:
             return
         bundle = self.runtime.perceive(frame)
+        if find_roblox_window() != window:
+            self._recover_window()
+            return
+        self.runtime.note_window_present()
         previous = self.runtime.state
         self.runtime.apply_bundle(bundle, operator_stop=False)
         self._log_state(previous)
@@ -150,10 +146,23 @@ class App:
             return
         if self._stop_event.is_set() or not self.runtime._running:
             return
+        if find_roblox_window() != window:
+            self._recover_window()
+            return
         previous = self.runtime.state
         self.runtime.act(bundle, frame)
         self._log_state(previous)
         self._set_status(self.runtime.state.name)
+
+    def _recover_window(self) -> None:
+        previous = self.runtime.state
+        tripped = self.runtime.enter_recovery()
+        self._log_state(previous)
+        if tripped:
+            self._stop_event.set()
+            self._set_status("Stopped: Roblox window unavailable too long")
+        else:
+            self._set_status("Waiting for the active Roblox window")
 
     def _log_state(self, previous: BotState) -> None:
         current = self.runtime.state
