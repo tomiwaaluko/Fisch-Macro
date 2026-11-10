@@ -379,7 +379,7 @@ def test_perceived_cast_holds_until_the_vertical_meter_fills():
     assert mouse.events == [("move", 210, 155), ("down",)]
 
     image[40:52, 290:310] = (0, 220, 0)
-    for timestamp, fill in ((100, 0.2), (200, 0.4), (300, 0.6)):
+    for timestamp, fill in ((100, 0.2), (200, 0.4), (300, 0.6), (350, 0.74)):
         charging = image.copy()
         charging[240 - round(200 * fill) : 240, 290:310] = 240
         frame = _frame(charging, timestamp_ms=timestamp)
@@ -390,9 +390,11 @@ def test_perceived_cast_holds_until_the_vertical_meter_fills():
         assert mouse.events == [("move", 210, 155), ("down",)]
 
     charged = image.copy()
-    charged[60:240, 290:310] = 240
+    charged[90:240, 290:310] = 240
     frame = _frame(charged, timestamp_ms=400)
-    _step(rt, rt.perceive(frame), frame)
+    bundle = rt.perceive(frame)
+    assert bundle.cast.extras["fill_ratio"] == pytest.approx(0.75)
+    _step(rt, bundle, frame)
     assert not rt.input.is_held()
     assert mouse.events == [("move", 210, 155), ("down",), ("up",)]
 

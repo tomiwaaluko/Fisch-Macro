@@ -33,6 +33,20 @@ def test_detect_shake_finds_labeled_circle():
     assert obs.extras["radius"] >= 30
 
 
+def test_detect_shake_returns_full_size_coordinates_after_downsampling():
+    center = (853, 302)
+    radius = 64
+    image = _synthetic_shake(h=720, w=1280, radius=radius, center=center)
+
+    obs = detect_shake(image)
+
+    assert obs.found
+    x, y = obs.extras["center"]
+    assert abs(x - center[0]) <= 5
+    assert abs(y - center[1]) <= 5
+    assert abs(obs.extras["radius"] - radius) <= 5
+
+
 def test_detect_shake_rejects_unlabeled_ring():
     assert not detect_shake(_synthetic_shake(label=False)).found
 
