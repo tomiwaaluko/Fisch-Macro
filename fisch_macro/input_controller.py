@@ -1,0 +1,91 @@
+# fisch_macro/input_controller.py
+from __future__ import annotations
+
+import threading
+from typing import Callable, Protocol
+
+
+class MouseBackend(Protocol):
+    position: tuple[int, int]
+
+    def move_to(self, x: int, y: int) -> None: ...
+    def down(self) -> None: ...
+    def up(self) -> None: ...
+
+
+class PynputMouse:
+    def __init__(self) -> None:
+        from pynput.mouse import Button, Controller
+
+        self._ctl = Controller()
+        self._button = Button.left
+
+    @property
+    def position(self) -> tuple[int, int]:
+        pos = self._ctl.position
+        return (int(pos[0]), int(pos[1]))
+
+    def move_to(self, x: int, y: int) -> None:
+        self._ctl.position = (x, y)
+
+    def down(self) -> None:
+        self._ctl.press(self._button)
+
+    def up(self) -> None:
+        self._ctl.release(self._button)
+
+
+class InputController:
+    def __init__(
+        self,
+        mouse: MouseBackend | None = None,
+        sleep_fn: Callable[[float], None] | None = None,
+    ) -> None:
+        self._mouse = mouse or PynputMouse()
+        self._sleep = sleep_fn
+        self._cancelled = threading.Event()
+        self._held = False
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def clear_cancel(self) -> None:
+        self._cancelled.clear()
+
+    def is_cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
+    def move_to(self, x: int, y: int) -> bool:
+        if self.is_cancelled():
+            return False
+        self._mouse.move_to(x, y)
+        return True
+
+    def mouse_down(self) -> bool:
+        if self.is_cancelled():
+            return False
+        self._mouse.down()
+        self._held = True
+        return True
+
+    def mouse_up(self) -> None:
+        if self._held:
+            self._mouse.up()
+            self._held = False
+
+    def release_all(self) -> None:
+        self.mouse_up()
+
+    def click(self, x: int, y: int, hold_ms: float = 70.0) -> bool:
+        if not self.move_to(x, y):
+            return False
+        if not self.mouse_down():
+            return False
+        try:
+            seconds = hold_ms / 1000.0
+            if self._sleep is None:
+                return not self._cancelled.wait(seconds)
+            self._sleep(seconds)
+            return not self.is_cancelled()
+        finally:
+            self.mouse_up()

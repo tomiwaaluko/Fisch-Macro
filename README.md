@@ -27,12 +27,24 @@ Fisch Macro is a versatile macro recorder and automation tool designed for the R
 
 ## Usage
 
-1. Run the application:
-   ```bash
-   python "Fisch Macro.py"
-   ```
-2. Use the GUI to record and play back macros or start SHAKE detection.
-3. Alternatively, use the following hotkeys for quick access:
+Primary usage is the autonomous fishing loop:
+
+```bash
+pip install -r requirements.txt
+python -m fisch_macro
+```
+
+After clicking Start, switch to Roblox. The macro releases the mouse button and waits in recovery whenever Roblox loses focus. **F10** or Stop/Kill stops immediately and releases the mouse button. Save Profile writes `profiles/{name}.json`.
+
+### Legacy GUI macro recorder (obsolete prototype)
+
+`legacy_fisch_macro.py` is the old Tkinter macro recorder prototype. It is not the supported entrypoint. Use `python -m fisch_macro` instead.
+
+```bash
+python legacy_fisch_macro.py
+```
+
+For reference, the legacy recorder hotkeys are:
 
 ## Hotkeys
 
@@ -41,7 +53,7 @@ Fisch Macro is a versatile macro recorder and automation tool designed for the R
 - **F7**: Play recorded macros.
 - **F8**: Pause macro playback.
 - **F9**: Start SHAKE detection.
-- **F10**: Stop SHAKE detection.
+- **F10**: Kill switch. Stops the autonomous loop and releases the mouse button (legacy recorder: stop SHAKE detection).
 
 ## Contributing
 
