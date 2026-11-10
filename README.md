@@ -27,15 +27,14 @@ Fisch Macro is a versatile macro recorder and automation tool designed for the R
 
 ## Usage
 
-### Autonomous fishing macro (in development)
-
-After installing dependencies with `pip install -r requirements.txt`, run:
+Primary usage is the autonomous fishing loop:
 
 ```bash
+pip install -r requirements.txt
 python -m fisch_macro
 ```
 
-The modular autonomous loop uses classical computer vision; the `python -m fisch_macro` entrypoint is completed in a later task.
+Start runs the vision loop. **F10** or Stop/Kill stops immediately and releases the mouse button. Save Profile writes `profiles/{name}.json`.
 
 ### Legacy GUI macro recorder
 
@@ -53,7 +52,7 @@ The modular autonomous loop uses classical computer vision; the `python -m fisch
 - **F7**: Play recorded macros.
 - **F8**: Pause macro playback.
 - **F9**: Start SHAKE detection.
-- **F10**: Stop SHAKE detection.
+- **F10**: Kill switch. Stops the autonomous loop and releases the mouse button (legacy recorder: stop SHAKE detection).
 
 ## Contributing
 
