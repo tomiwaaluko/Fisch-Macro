@@ -36,6 +36,8 @@ python -m fisch_macro
 
 After clicking Start, switch to Roblox. The macro releases the mouse button and waits in recovery whenever Roblox loses focus. **F10** or Stop/Kill stops immediately and releases the mouse button. Save Profile writes `profiles/{name}.json`.
 
+During casting, the status shows whether LMB is held and the detected vertical meter fill. The session log records `cast_control` events with mouse state, meter detection, fill ratio, and release threshold. A missing meter is shown explicitly so a timed fallback release can be distinguished from a measured cast.
+
 ### Legacy GUI macro recorder (obsolete prototype)
 
 `legacy_fisch_macro.py` is the old Tkinter macro recorder prototype. It is not the supported entrypoint. Use `python -m fisch_macro` instead.

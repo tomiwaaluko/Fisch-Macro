@@ -14,7 +14,7 @@ from fisch_macro.input_controller import InputController
 from fisch_macro.logging_util import JsonlLogger
 from fisch_macro.loop import BotRuntime
 from fisch_macro.state_machine import StateMachine
-from fisch_macro.types import BotState, ProfileData
+from fisch_macro.types import BotState, Observation, ProfileData
 
 _TICK_HZ = 33.0
 _INVALID_NAME_CHARS = '<>:"/\\|?*'
@@ -152,7 +152,25 @@ class App:
         previous = self.runtime.state
         self.runtime.act(bundle, frame)
         self._log_state(previous)
-        self._set_status(self.runtime.state.name)
+        if previous == BotState.CASTING or self.runtime.state == BotState.CASTING:
+            self._report_cast(bundle.cast, frame.timestamp_ms)
+        else:
+            self._set_status(self.runtime.state.name)
+
+    def _report_cast(self, meter: Observation, timestamp_ms: int) -> None:
+        held = self.runtime.input.is_held()
+        fill = float(meter.extras["fill_ratio"]) if meter.found else None
+        self.logger.log(
+            "cast_control",
+            timestamp_ms=timestamp_ms,
+            mouse_held=held,
+            meter_found=meter.found,
+            fill_ratio=fill,
+            release_threshold=self.runtime.cast.release_threshold(),
+        )
+        button = "held" if held else "released"
+        progress = f"meter {fill:.0%}" if fill is not None else "meter not detected"
+        self._set_status(f"{self.runtime.state.name} | LMB {button} | {progress}")
 
     def _recover_window(self) -> None:
         previous = self.runtime.state

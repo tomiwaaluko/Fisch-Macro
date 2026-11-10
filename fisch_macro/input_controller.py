@@ -55,6 +55,9 @@ class InputController:
     def is_cancelled(self) -> bool:
         return self._cancelled.is_set()
 
+    def is_held(self) -> bool:
+        return self._held
+
     def move_to(self, x: int, y: int) -> bool:
         if self.is_cancelled():
             return False

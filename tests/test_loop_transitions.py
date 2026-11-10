@@ -1,6 +1,7 @@
 # tests/test_loop_transitions.py
 import threading
 
+import cv2
 import numpy as np
 import pytest
 
@@ -361,6 +362,39 @@ def test_cast_hold_continues_until_fill_threshold():
     _step(rt, _bundle(cast=cast, ready=Observation(False)), _frame(timestamp_ms=160))
     assert ("up",) in mouse.events
     assert rt.cast._holding is False
+
+
+def test_perceived_cast_holds_until_the_vertical_meter_fills():
+    mouse = FakeMouse()
+    rt = _runtime(mouse=mouse, dry_run=False)
+    rt.start()
+    image = np.full((300, 400, 3), 20, dtype=np.uint8)
+    # Scenery and fading rings must not turn the initial cast into short clicks.
+    cv2.circle(image, (80, 220), 60, (220, 220, 220), 3)
+
+    frame = _frame(image, timestamp_ms=0)
+    _step(rt, rt.perceive(frame), frame)
+    assert rt.state == BotState.CASTING
+    assert rt.input.is_held()
+    assert mouse.events == [("move", 210, 155), ("down",)]
+
+    image[40:52, 290:310] = (0, 220, 0)
+    for timestamp, fill in ((100, 0.2), (200, 0.4), (300, 0.6)):
+        charging = image.copy()
+        charging[240 - round(200 * fill) : 240, 290:310] = 240
+        frame = _frame(charging, timestamp_ms=timestamp)
+        bundle = rt.perceive(frame)
+        assert bundle.cast.extras["fill_ratio"] == pytest.approx(fill)
+        _step(rt, bundle, frame)
+        assert rt.input.is_held()
+        assert mouse.events == [("move", 210, 155), ("down",)]
+
+    charged = image.copy()
+    charged[60:240, 290:310] = 240
+    frame = _frame(charged, timestamp_ms=400)
+    _step(rt, rt.perceive(frame), frame)
+    assert not rt.input.is_held()
+    assert mouse.events == [("move", 210, 155), ("down",), ("up",)]
 
 
 def test_visible_meter_on_pre_cast_still_presses():
