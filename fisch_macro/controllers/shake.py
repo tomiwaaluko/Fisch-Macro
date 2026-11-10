@@ -26,8 +26,6 @@ class ShakeController:
         ok = self.input.click(screen_x, screen_y, hold_ms=self.profile.shake_click_hold_ms)
         if ok:
             self._last_center = (int(cx), int(cy))
-            radius = float(shake.extras.get("radius", self.profile.shake_radius_px_mean))
-            self.profile.shake_radius_px_mean = 0.8 * self.profile.shake_radius_px_mean + 0.2 * radius
         return ok
 
     def reset_target_memory(self) -> None:

@@ -51,6 +51,7 @@ class ReelController:
         progress: float,
         progress_slope: float,
         fish_volatility: float,
+        safe_screen_xy: tuple[int, int] | None = None,
     ) -> str:
         want_hold = self.decide_hold(
             fish_x, bar_left, bar_right, progress, progress_slope, fish_volatility
@@ -60,7 +61,11 @@ class ReelController:
             self._holding = want_hold
             return mode
         if want_hold and not self._holding:
-            self.input.mouse_down()
+            if safe_screen_xy is not None:
+                if not self.input.move_to(int(safe_screen_xy[0]), int(safe_screen_xy[1])):
+                    return mode
+            if not self.input.mouse_down():
+                return mode
             self._holding = True
         elif not want_hold and self._holding:
             self.input.mouse_up()

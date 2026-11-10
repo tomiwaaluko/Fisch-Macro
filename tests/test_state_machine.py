@@ -40,3 +40,34 @@ def test_operator_stop_forces_idle():
     sm = StateMachine()
     nxt = sm.transition(BotState.SHAKING, bundle(), operator_stop=True)
     assert nxt == BotState.IDLE
+
+
+def test_cast_entry_and_hold_are_not_stolen_by_the_meter():
+    sm = StateMachine()
+    cast = Observation(True, 0.8, extras={"fill_ratio": 0.2})
+    assert sm.transition(BotState.PRE_CAST, bundle(cast=cast), False) == BotState.PRE_CAST
+    assert (
+        sm.transition(BotState.RESET_TO_CAST, bundle(cast=cast, ready=Observation(True)), False)
+        == BotState.PRE_CAST
+    )
+    assert sm.transition(BotState.RESET_TO_CAST, bundle(cast=cast), False) == BotState.RESET_TO_CAST
+    assert sm.transition(BotState.RECOVERY, bundle(cast=cast), False) == BotState.RECOVERY
+    assert sm.transition(BotState.RECOVERY, bundle(ready=Observation(True)), False) == BotState.PRE_CAST
+    assert sm.transition(BotState.CASTING, bundle(), False, cast_holding=True) == BotState.CASTING
+    held_shake = bundle(shake=Observation(True, 0.9))
+    assert sm.transition(BotState.CASTING, held_shake, False, cast_holding=True) == BotState.CASTING
+    assert sm.transition(BotState.CASTING, bundle(), False, cast_holding=False) == BotState.WAITING_SHAKE
+    assert (
+        sm.transition(BotState.CASTING, bundle(result=Observation(True, 0.9)), False, cast_holding=True)
+        == BotState.CATCH_RESULT
+    )
+    reel = Observation(True, 0.9)
+    assert (
+        sm.transition(
+            BotState.CASTING,
+            bundle(reel=reel, shake=Observation(True, 0.9)),
+            False,
+            cast_holding=True,
+        )
+        == BotState.BITE_DETECTED
+    )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -52,6 +53,7 @@ class App:
         tk.Label(self.root, text="Profile").pack(anchor="w", padx=8)
         tk.Entry(self.root, textvariable=self.profile_name).pack(fill="x", padx=8)
         tk.Button(self.root, text="Save Profile", command=self.save_profile).pack(fill="x", padx=8, pady=4)
+        tk.Button(self.root, text="Load Profile", command=self.load_profile).pack(fill="x", padx=8, pady=4)
         tk.Label(self.root, textvariable=self.status).pack(padx=8, pady=8)
         self.root.bind("<F10>", self.stop)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -71,18 +73,38 @@ class App:
         self._set_status("Stopped")
         return "break"
 
-    def save_profile(self) -> None:
-        raw = (self.profile_name.get() or self.runtime.profile.name).strip() or "default"
-        name = "".join("-" if char in _INVALID_NAME_CHARS else char for char in raw).strip(" .")
+    def _clean_profile_name(self, raw: str | None) -> str:
+        text = (raw or self.runtime.profile.name).strip() or "default"
+        name = "".join("-" if char in _INVALID_NAME_CHARS else char for char in text).strip(" .")
         if name.lower().endswith(".json"):
             name = name[:-5]
-        name = name or "default"
+        return name or "default"
+
+    def _profile_path(self, name: str) -> Path:
+        return Path("profiles") / f"{name}.json"
+
+    def save_profile(self) -> None:
+        name = self._clean_profile_name(self.profile_name.get())
         self.runtime.profile.name = name
         self.profile_name.set(name)
-        path = Path("profiles") / f"{name}.json"
+        path = self._profile_path(name)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.runtime.profiler.save(path)
         self._set_status(f"Saved {path.as_posix()}")
+
+    def load_profile(self) -> None:
+        name = self._clean_profile_name(self.profile_name.get())
+        path = self._profile_path(name)
+        if not path.is_file():
+            self._set_status(f"Missing {path.as_posix()}")
+            return
+        try:
+            self.runtime.load_profile(path)
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            self._set_status(f"Load failed: {exc}")
+            return
+        self.profile_name.set(self.runtime.profile.name)
+        self._set_status(f"Loaded {path.as_posix()}")
 
     def _worker(self) -> None:
         period = 1.0 / _TICK_HZ
@@ -110,10 +132,11 @@ class App:
             self._log_state(previous)
             if tripped:
                 self._stop_event.set()
-                self._set_status("Stopped after consecutive failures")
+                self._set_status("Stopped: Roblox window missing too long")
             else:
                 self._set_status("No Roblox window — recovery")
             return
+        self.runtime.note_window_present()
         frame = grab_frame(window)
         if self._stop_event.is_set() or not self.runtime._running:
             return
@@ -121,6 +144,10 @@ class App:
         previous = self.runtime.state
         self.runtime.apply_bundle(bundle, operator_stop=False)
         self._log_state(previous)
+        if not self._stop_event.is_set() and not self.runtime._running:
+            self._stop_event.set()
+            self._set_status("Stopped after consecutive catch failures")
+            return
         if self._stop_event.is_set() or not self.runtime._running:
             return
         previous = self.runtime.state

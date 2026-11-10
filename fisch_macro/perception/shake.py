@@ -6,6 +6,14 @@ import numpy as np
 from fisch_macro.types import Observation, Rect
 
 
+def radius_limits_from_prior(mean_radius: float) -> tuple[int, int]:
+    """Hough bounds from the learned radius. Smoothing stays in the profiler."""
+    mean = max(1.0, float(mean_radius))
+    min_radius = max(12, int(round(mean * 0.45)))
+    max_radius = max(min_radius + 20, int(round(mean * 2.0)))
+    return min_radius, max_radius
+
+
 def detect_shake(image_bgr: np.ndarray, min_radius: int = 20, max_radius: int = 160) -> Observation:
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (9, 9), 2)

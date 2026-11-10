@@ -10,6 +10,7 @@ class StateMachine:
         state: BotState,
         bundle: FrameBundle,
         operator_stop: bool,
+        cast_holding: bool = False,
     ) -> BotState:
         if operator_stop:
             return BotState.IDLE
@@ -31,8 +32,28 @@ class StateMachine:
         if bundle.bite.found:
             return BotState.BITE_DETECTED
 
+        # Ownership stays with the cast hold. A missing meter or a shake
+        # circle must not drop CASTING while the button is still down.
+        # Result, reel, and bite already returned above.
+        if cast_holding and state == BotState.CASTING:
+            return BotState.CASTING
+
         if bundle.shake.found:
             return BotState.SHAKING
+
+        # Meter presence must not skip the states that actually press LMB.
+        if state == BotState.RESET_TO_CAST:
+            if bundle.ready.found:
+                return BotState.PRE_CAST
+            return BotState.RESET_TO_CAST
+
+        if state == BotState.PRE_CAST:
+            return BotState.PRE_CAST
+
+        if state == BotState.RECOVERY:
+            if bundle.ready.found:
+                return BotState.PRE_CAST
+            return BotState.RECOVERY
 
         if bundle.cast.found:
             return BotState.CASTING
@@ -42,22 +63,7 @@ class StateMachine:
                 return BotState.RESET_TO_CAST
             return BotState.CATCH_RESULT
 
-        if state == BotState.RESET_TO_CAST and bundle.ready.found:
-            return BotState.PRE_CAST
-
         if state in {BotState.CASTING, BotState.WAITING_SHAKE} and not bundle.shake.found:
             return BotState.WAITING_SHAKE
-
-        if state == BotState.PRE_CAST:
-            return BotState.PRE_CAST
-
-        if state == BotState.RECOVERY:
-            if bundle.ready.found:
-                return BotState.PRE_CAST
-            if bundle.reel.found:
-                return BotState.REEL_INITIALIZING
-            if bundle.shake.found:
-                return BotState.SHAKING
-            return BotState.RECOVERY
 
         return state
