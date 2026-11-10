@@ -112,20 +112,34 @@ class BotRuntime:
             return self.state
 
     def enter_recovery(self) -> bool:
-        """Release inputs and sit in RECOVERY. Stop once fail_streak hits the cap."""
+        """Release inputs and sit in RECOVERY.
+
+        Each call counts, including every loop iteration with no Roblox window.
+        Stop once fail_streak hits the cap.
+        """
         with self._lock:
             if not self._accepting:
                 return False
-            fresh = self.state != BotState.RECOVERY
             self._release_buttons()
             self.state = BotState.RECOVERY
-            if fresh:
-                self.fail_streak += 1
+            self.fail_streak += 1
             tripped = self.fail_streak >= self.max_fail_streak
         if tripped:
             self.stop()
             return True
         return False
+
+    def release_after_error(self) -> None:
+        """Drop held buttons after a worker exception so the loop can continue."""
+        try:
+            self.recovery.run()
+            self.cast.force_release()
+            self.reel.force_release()
+        except Exception:
+            try:
+                self.input.release_all()
+            except Exception:
+                return
 
     def act(self, bundle: FrameBundle, frame: FramePacket) -> None:
         with self._lock:
@@ -134,7 +148,9 @@ class BotRuntime:
                 self.cast.force_release()
             elif self.state == BotState.RECOVERY:
                 self._release_buttons()
-            if self.state not in {BotState.REEL_INITIALIZING, BotState.REELING}:
+            if self.state == BotState.REEL_INITIALIZING:
+                self._observe_reel_progress(bundle)
+            elif self.state != BotState.REELING:
                 self._last_reel_progress = None
             if self.dry_run or not self._running:
                 return
@@ -163,8 +179,12 @@ class BotRuntime:
             self.shake.tick(bundle.shake, True, origin)
             if self.cast._holding:
                 self.cast.force_release()
-        elif self.state in {BotState.REEL_INITIALIZING, BotState.REELING}:
+        elif self.state == BotState.REELING:
             self._tick_reel(bundle)
+
+    def _observe_reel_progress(self, bundle: FrameBundle) -> None:
+        """Remember reel progress during init. Do not hold or release."""
+        self._last_reel_progress = float(bundle.reel.extras.get("progress", 0.0))
 
     def _tick_reel(self, bundle: FrameBundle) -> None:
         extras = bundle.reel.extras

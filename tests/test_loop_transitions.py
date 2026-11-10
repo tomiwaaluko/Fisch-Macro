@@ -150,6 +150,58 @@ def test_act_shaking_updates_profiler_radius():
     assert rt.profiler.data.shake_radius_px_mean != before
 
 
+def _reel_hold_extras(**overrides) -> Observation:
+    extras = {"stable": False, "fish_x": 0.8, "bar_left": 0.2, "bar_right": 0.6, "progress": 0.4}
+    extras.update(overrides)
+    return Observation(True, 0.9, extras=extras)
+
+
+def test_act_reel_initializing_does_not_mouse_down():
+    reel = _reel_hold_extras()
+    for dry_run in (True, False):
+        mouse = FakeMouse()
+        rt = _runtime(mouse=mouse, dry_run=dry_run)
+        rt.start()
+        rt.state = BotState.REEL_INITIALIZING
+        rt.act(_bundle(reel=reel, ready=Observation(False)), _frame())
+        assert ("down",) not in mouse.events
+        assert rt.reel._holding is False
+        assert rt._last_reel_progress == 0.4
+        assert rt.state == BotState.REEL_INITIALIZING
+
+
+def test_enter_recovery_counts_each_missing_window_iteration():
+    mouse = FakeMouse()
+    rt = _runtime(mouse=mouse, dry_run=False)
+    rt.start()
+    rt.input.mouse_down()
+    for i in range(rt.max_fail_streak - 1):
+        assert rt.enter_recovery() is False
+        assert rt.fail_streak == i + 1
+        assert rt.state == BotState.RECOVERY
+        assert rt._running is True
+    assert ("up",) in mouse.events
+    assert rt.enter_recovery() is True
+    assert rt.fail_streak == rt.max_fail_streak
+    assert rt.state == BotState.IDLE
+    assert rt._running is False
+
+
+def test_release_after_error_releases_without_stopping():
+    mouse = FakeMouse()
+    rt = _runtime(mouse=mouse, dry_run=False)
+    rt.start()
+    rt.input.mouse_down()
+    rt.reel._holding = True
+    rt.cast._holding = True
+    rt.release_after_error()
+    assert ("up",) in mouse.events
+    assert rt.reel._holding is False
+    assert rt.cast._holding is False
+    assert rt._running is True
+    assert rt.state == BotState.PRE_CAST
+
+
 def test_act_reeling_invokes_reel_with_progress_slope():
     mouse = FakeMouse()
     rt = _runtime(mouse=mouse, dry_run=False)

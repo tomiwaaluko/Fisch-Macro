@@ -91,8 +91,11 @@ class App:
             try:
                 self._tick()
             except Exception as exc:
-                self.logger.log("error", message=str(exc))
-                self._set_status(f"Error: {exc}")
+                try:
+                    self.logger.log("error", message=str(exc))
+                    self._set_status(f"Error: {exc}")
+                finally:
+                    self.runtime.release_after_error()
             remaining = period - (time.perf_counter() - started)
             if remaining > 0 and not self._stop_event.is_set():
                 time.sleep(remaining)
