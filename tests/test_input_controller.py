@@ -33,3 +33,16 @@ def test_release_all_ups_if_held():
     ctl.release_all()
     assert ("down",) in mouse.events
     assert ("up",) in mouse.events
+
+
+def test_click_mid_hold_cancel_releases_via_release_all():
+    mouse = FakeMouse()
+    ctl_box: list[InputController] = []
+
+    def sleep_fn(_seconds: float) -> None:
+        ctl_box[0].cancel()
+
+    ctl = InputController(mouse=mouse, sleep_fn=sleep_fn)
+    ctl_box.append(ctl)
+    assert ctl.click(10, 20, hold_ms=50) is False
+    assert mouse.events == [("move", 10, 20), ("down",), ("up",)]
