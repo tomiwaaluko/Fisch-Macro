@@ -1,4 +1,5 @@
 # tests/test_shake.py
+import cv2
 import numpy as np
 
 from fisch_macro.controllers import shake as shake_controller
@@ -8,22 +9,67 @@ from fisch_macro.perception.shake import detect_shake
 from fisch_macro.types import Observation, ProfileData, Rect
 
 
-def _synthetic_shake(h=200, w=300, radius=40, center=(150, 100)) -> np.ndarray:
+def _synthetic_shake(h=200, w=300, radius=40, center=(150, 100), label=True) -> np.ndarray:
     img = np.zeros((h, w, 3), dtype=np.uint8)
     yy, xx = np.ogrid[:h, :w]
     mask = (xx - center[0]) ** 2 + (yy - center[1]) ** 2 <= radius**2
     img[mask] = (40, 40, 40)
     ring = ((xx - center[0]) ** 2 + (yy - center[1]) ** 2 <= (radius + 3) ** 2) & ~mask
     img[ring] = (220, 220, 220)
+    if label:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        scale = radius / 73
+        (width, height), _ = cv2.getTextSize("SHAKE", font, scale, 1)
+        origin = (center[0] - width // 2, center[1] + height // 2)
+        cv2.putText(img, "SHAKE", origin, font, scale, (240, 240, 240), 1, cv2.LINE_AA)
     return img
 
 
-def test_detect_shake_finds_circle():
+def test_detect_shake_finds_labeled_circle():
     img = _synthetic_shake()
     obs = detect_shake(img)
     assert obs.found
     assert obs.geometry is not None
     assert obs.extras["radius"] >= 30
+
+
+def test_detect_shake_returns_full_size_coordinates_after_downsampling():
+    center = (853, 302)
+    radius = 64
+    image = _synthetic_shake(h=720, w=1280, radius=radius, center=center)
+
+    obs = detect_shake(image)
+
+    assert obs.found
+    x, y = obs.extras["center"]
+    assert abs(x - center[0]) <= 5
+    assert abs(y - center[1]) <= 5
+    assert abs(obs.extras["radius"] - radius) <= 5
+
+
+def test_detect_shake_rejects_unlabeled_ring():
+    assert not detect_shake(_synthetic_shake(label=False)).found
+
+
+def test_detect_shake_bounds_an_inflated_saved_radius():
+    assert detect_shake(_synthetic_shake(), min_radius=1000, max_radius=3000).found
+
+
+def test_detect_shake_prefers_active_button_over_larger_unlabeled_ring():
+    button = _synthetic_shake(w=400, center=(100, 100))
+    old_ring = _synthetic_shake(w=400, radius=52, center=(285, 115), label=False)
+    obs = detect_shake(np.maximum(button, old_ring))
+    assert obs.found
+    x, y = obs.extras["center"]
+    assert abs(x - 100) <= 5 and abs(y - 100) <= 5
+
+
+def test_detect_shake_rejects_text_without_enclosing_button(monkeypatch):
+    image = _synthetic_shake()
+    yy, xx = np.ogrid[:200, :300]
+    image[(xx - 150) ** 2 + (yy - 100) ** 2 > 25**2] = 0
+    monkeypatch.setattr(cv2, "HoughCircles", lambda *a, **kw: np.array([[[150, 100, 40]]]))
+    assert not detect_shake(image).found
 
 
 class FakeMouse:

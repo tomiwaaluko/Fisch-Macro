@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from fisch_macro import capture, ui
-from fisch_macro.types import BotState
+from fisch_macro.types import BotState, Observation
 
 
 @pytest.mark.parametrize(
@@ -53,3 +53,28 @@ def test_worker_discards_frame_if_window_loses_focus_or_moves(
     app.runtime.enter_recovery.assert_called_once_with()
     assert app.runtime.apply_bundle.called is not before_transition
     app.runtime.act.assert_not_called()
+
+
+@pytest.mark.parametrize("held,fill", [(True, 0.4), (False, 0.9), (True, None)])
+def test_cast_status_reports_mouse_hold_and_observed_meter(held, fill):
+    app = ui.App.__new__(ui.App)
+    app.runtime = Mock(state=BotState.CASTING)
+    app.runtime.input.is_held.return_value = held
+    app.runtime.cast.release_threshold.return_value = 0.75
+    app.logger = Mock()
+    app._set_status = Mock()
+    extras = {} if fill is None else {"fill_ratio": fill}
+
+    app._report_cast(Observation(fill is not None, extras=extras), timestamp_ms=100)
+
+    app.logger.log.assert_called_once_with(
+        "cast_control",
+        timestamp_ms=100,
+        mouse_held=held,
+        meter_found=fill is not None,
+        fill_ratio=fill,
+        release_threshold=0.75,
+    )
+    status = app._set_status.call_args.args[0]
+    assert ("LMB held" if held else "LMB released") in status
+    assert (f"meter {fill:.0%}" if fill is not None else "meter not detected") in status
